@@ -2,9 +2,15 @@ from Crypto.Cipher import AES
 from password import genkey
 
 BLOCK_SIZE = 16
-pad = lambda s: s + (BLOCK_SIZE - len(s) % BLOCK_SIZE) * \
-                chr(BLOCK_SIZE - len(s) % BLOCK_SIZE)
-unpad = lambda s: s[:-ord(s[len(s) - 1:])]
+
+def pad(s):
+    if isinstance(s, str):
+        s = s.encode('utf-8')
+    padding_len = BLOCK_SIZE - len(s) % BLOCK_SIZE
+    return s + bytes([padding_len] * padding_len)
+
+def unpad(s):
+    return s[:-s[-1]]
 
 
 class AESCipher:
@@ -12,19 +18,21 @@ class AESCipher:
         self.key = key
 
     def encrypt(self, raw):
+        if isinstance(raw, str):
+            raw = raw.encode('utf-8')
         cipher = AES.new(self.key, AES.MODE_ECB)
         return cipher.encrypt(raw)
 
     def decrypt(self, enc):
+        if isinstance(enc, str):
+            enc = enc.encode('utf-8')
         cipher = AES.new(self.key, AES.MODE_ECB)
         return cipher.decrypt(enc)
 
 
 def gogo(pwd, data, is_encrypt=True):
-    final_data = ''
+    final_data = b''
     TMP_IN = bytearray(16)
-
-    final_data = ''
 
     for kkk in range(0, len(data), 16):
 
@@ -32,61 +40,61 @@ def gogo(pwd, data, is_encrypt=True):
 
         for i in range(128):
 
-            OUT = AESCipher(pwd).encrypt(str(TMP_IN))
+            OUT = AESCipher(pwd).encrypt(bytes(TMP_IN))
 
-            OUT = ord(OUT[0])
+            OUT = OUT[0]
 
-            ff = i & 7;
+            ff = i & 7
 
             if is_encrypt:
-                REAL_INPUT[i>>3] ^= (OUT & 0x80) >> (i & 7);
+                REAL_INPUT[i>>3] ^= (OUT & 0x80) >> (i & 7)
 
-            tmp = 1;
+            tmp = 1
             for j in range(3):
-                v14 = TMP_IN[tmp];
+                v14 = TMP_IN[tmp]
 
-                TMP_IN[tmp-1] = ((2 * TMP_IN[tmp-1])&0xff) | (TMP_IN[tmp] >> 7);
-                v15 = TMP_IN[tmp+1];
-                v16 = ((2 * v14)&0xff) | (TMP_IN[tmp+1] >> 7);
+                TMP_IN[tmp-1] = ((2 * TMP_IN[tmp-1])&0xff) | (TMP_IN[tmp] >> 7)
+                v15 = TMP_IN[tmp+1]
+                v16 = ((2 * v14)&0xff) | (TMP_IN[tmp+1] >> 7)
 
-                v17 = TMP_IN[tmp+2];
-                TMP_IN[tmp] = v16;
-                v18 = ((2 * v15)&0xff) | (v17 >> 7);
+                v17 = TMP_IN[tmp+2]
+                TMP_IN[tmp] = v16
+                v18 = ((2 * v15)&0xff) | (v17 >> 7)
 
-                v19 = TMP_IN[tmp+3];
-                TMP_IN[tmp+1] = v18;
-                v20 = ((2 * v17)&0xff) | (v19 >> 7);
+                v19 = TMP_IN[tmp+3]
+                TMP_IN[tmp+1] = v18
+                v20 = ((2 * v17)&0xff) | (v19 >> 7)
 
-                v21 = ((2 * v19)&0xff) | (TMP_IN[tmp+4] >> 7);
+                v21 = ((2 * v19)&0xff) | (TMP_IN[tmp+4] >> 7)
 
-                TMP_IN[tmp+2] = v20;
-                TMP_IN[tmp+3] = v21;
+                TMP_IN[tmp+2] = v20
+                TMP_IN[tmp+3] = v21
 
-                tmp += 5;
+                tmp += 5
 
             if is_encrypt:
                 TMP_IN[15] = ((2 * TMP_IN[15])&0xff) | (REAL_INPUT[i>>3] >> (7 - ff))
             else:
-                TMP_IN[15] = ((2 * TMP_IN[15])&0xff) | (REAL_INPUT[i>>3] >> (7 - ff)) & 1 
+                TMP_IN[15] = ((2 * TMP_IN[15])&0xff) | (REAL_INPUT[i>>3] >> (7 - ff)) & 1
 
             if not is_encrypt:
-                REAL_INPUT[i>>3] ^= (OUT & 0x80) >> (i & 7);
+                REAL_INPUT[i>>3] ^= (OUT & 0x80) >> (i & 7)
 
         if is_encrypt:
-            final_data += str(TMP_IN)
-            print str(REAL_INPUT).encode("hex")
+            final_data += bytes(TMP_IN)
+            # Uncomment for debugging: print(bytes(REAL_INPUT).hex())
         else:
-            final_data += str(REAL_INPUT)
+            final_data += bytes(REAL_INPUT)
 
     return final_data
 
 
 if __name__ == '__main__':
-    pwd = "40fc1ff828306c3ab4efc6df53939455".decode("hex")
+    pwd = bytes.fromhex("40fc1ff828306c3ab4efc6df53939455")
     pwd = genkey("asdfasdf")
 
-    enc = gogo(pwd, pad(raw_input("input: ").strip()))
-    print "enc: ", enc.encode("hex")
-    plain = gogo(pwd, open("wowmem").read(), False)
-    print "plain: ", plain.encode("hex")
+    enc = gogo(pwd, pad(input("input: ").strip()))
+    print("enc: ", enc.hex())
+    plain = gogo(pwd, open("wowmem", "rb").read(), False)
+    print("plain: ", plain.hex())
 
