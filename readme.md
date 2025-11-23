@@ -8,6 +8,7 @@ A Python 3 tool for recovering passwords from HWP (Hancom Office) files. This to
 
 - **Unlock**: Decrypt HWP files with a known password
 - **Crack**: Brute-force password recovery with customizable patterns
+- **Parallel Processing**: Multi-core CPU support for faster cracking
 - **CLI Interface**: Easy-to-use command-line interface
 - **Python 3**: Updated from Python 2 to Python 3 with modern syntax
 
@@ -49,6 +50,7 @@ python3 hwp_cli.py crack <file.hwp> [options]
 - `-c, --charset`: Character set to use (default: lowercase letters a-z)
 - `-m, --max-attempts`: Maximum number of attempts
 - `-u, --unlock`: Automatically unlock file when password is found
+- `-w, --workers`: Number of parallel workers (default: CPU count, use 1 for single-threaded)
 
 **Note:** Either `--pattern` or `--length` must be specified (but not both).
 
@@ -84,6 +86,16 @@ python3 hwp_cli.py crack document.hwp -l 3 -c "abc123" -u
 python3 hwp_cli.py crack document.hwp -l 3 -m 10000
 ```
 
+7. Use parallel processing with 8 workers (faster):
+```bash
+python3 hwp_cli.py crack document.hwp -l 4 -c "0123456789" -w 8
+```
+
+8. Single-threaded mode (slower but less CPU usage):
+```bash
+python3 hwp_cli.py crack document.hwp -l 3 -w 1
+```
+
 ### Get Help
 
 ```bash
@@ -91,6 +103,34 @@ python3 hwp_cli.py -h
 python3 hwp_cli.py unlock -h
 python3 hwp_cli.py crack -h
 ```
+
+## Performance Optimization
+
+### Parallel Processing (CPU)
+
+By default, the tool uses all available CPU cores for parallel processing. This can provide 5-10x speed improvement depending on your CPU.
+
+**Default behavior** (uses all CPU cores):
+```bash
+python3 hwp_cli.py crack document.hwp -l 4 -c "0123456789"
+```
+
+**Specify number of workers**:
+```bash
+python3 hwp_cli.py crack document.hwp -l 4 -c "0123456789" -w 8
+```
+
+**Single-threaded mode** (for debugging or low-resource systems):
+```bash
+python3 hwp_cli.py crack document.hwp -l 3 -w 1
+```
+
+### Performance Tips
+
+1. **Start with shorter passwords**: Test with `-l 3` or `-l 4` before trying longer ones
+2. **Use specific charsets**: If you know the password only contains numbers, use `-c "0123456789"`
+3. **Limit attempts**: Use `-m` to set maximum attempts for testing
+4. **Parallel workers**: More workers = faster cracking (up to your CPU core count)
 
 ## How It Works
 

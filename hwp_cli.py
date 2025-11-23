@@ -7,11 +7,42 @@ import sys
 import os
 import olefile
 from string import ascii_lowercase
-from itertools import product
+from itertools import product, islice
+from multiprocessing import Pool, cpu_count, Manager
+import time
 
 from utils import gogo
 from password import genkey
 from hwp import unlock_hwp
+
+
+def worker_crack(args_tuple):
+    """Worker function for parallel password cracking"""
+    combinations, data, pattern, found_flag = args_tuple
+
+    for combination in combinations:
+        # Check if another worker already found the password
+        if found_flag.value:
+            return None
+
+        # Build password based on pattern or length
+        if pattern:
+            password = pattern.format(*combination)
+        else:
+            password = ''.join(combination)
+
+        try:
+            pwd = genkey(password)
+            decrypted = gogo(pwd, data[:16], is_encrypt=False)
+
+            # Check for HWP signature
+            if decrypted[0:3] == b'sbh':
+                found_flag.value = True
+                return password
+        except Exception:
+            continue
+
+    return None
 
 
 def unlock_command(args):
@@ -77,15 +108,43 @@ def crack_command(args):
         print(f"Mode: Length-based (all combinations)")
         print(f"Password length: {args.length}")
 
+    total_combinations = len(charset)**num_placeholders
     print(f"Character set: {charset}")
     print(f"Number of positions: {num_placeholders}")
-    print(f"Total combinations: {len(charset)**num_placeholders}")
+    print(f"Total combinations: {total_combinations}")
+
+    # Determine number of workers
+    num_workers = args.workers if args.workers else cpu_count()
+
+    if num_workers > 1:
+        print(f"Workers: {num_workers} (parallel mode)")
+    else:
+        print(f"Workers: 1 (single-threaded mode)")
+
     print()
 
-    attempts = 0
-    max_attempts = args.max_attempts if args.max_attempts else float('inf')
+    start_time = time.time()
+    max_attempts = args.max_attempts if args.max_attempts else total_combinations
 
-    # Generate all combinations
+    # Single-threaded mode
+    if num_workers == 1:
+        return _crack_single_threaded(
+            data, pattern, charset, num_placeholders,
+            max_attempts, args.file, args.unlock
+        )
+
+    # Multi-threaded mode
+    return _crack_parallel(
+        data, pattern, charset, num_placeholders,
+        max_attempts, num_workers, args.file, args.unlock, start_time
+    )
+
+
+def _crack_single_threaded(data, pattern, charset, num_placeholders,
+                           max_attempts, filename, auto_unlock):
+    """Single-threaded cracking"""
+    attempts = 0
+
     for combination in product(charset, repeat=num_placeholders):
         if attempts >= max_attempts:
             print(f"\nReached maximum attempts ({max_attempts})")
@@ -111,9 +170,9 @@ def crack_command(args):
                 print(f"\n\nPassword found: {password}")
                 print(f"Attempts: {attempts}")
 
-                if args.unlock:
+                if auto_unlock:
                     print(f"\nUnlocking file...")
-                    unlock_hwp(args.file, password)
+                    unlock_hwp(filename, password)
                     print(f"Success! File has been unlocked")
 
                 return 0
@@ -122,6 +181,68 @@ def crack_command(args):
 
     print(f"\n\nPassword not found after {attempts} attempts")
     return 1
+
+
+def _crack_parallel(data, pattern, charset, num_placeholders,
+                    max_attempts, num_workers, filename, auto_unlock, start_time):
+    """Parallel cracking using multiprocessing"""
+
+    # Generate all combinations
+    all_combinations = list(product(charset, repeat=num_placeholders))
+    total = min(len(all_combinations), max_attempts)
+
+    # Split work among workers
+    chunk_size = total // num_workers
+    if chunk_size == 0:
+        chunk_size = 1
+        num_workers = total
+
+    # Create shared flag for found password
+    manager = Manager()
+    found_flag = manager.Value('i', False)
+
+    # Prepare work chunks
+    work_chunks = []
+    for i in range(num_workers):
+        start_idx = i * chunk_size
+        if i == num_workers - 1:
+            end_idx = total
+        else:
+            end_idx = (i + 1) * chunk_size
+
+        chunk = all_combinations[start_idx:end_idx]
+        work_chunks.append((chunk, data, pattern, found_flag))
+
+    print(f"Splitting {total} combinations into {num_workers} chunks of ~{chunk_size} each")
+    print()
+
+    # Start parallel processing
+    result_password = None
+    with Pool(processes=num_workers) as pool:
+        results = pool.map(worker_crack, work_chunks)
+
+        # Find the password from results
+        for result in results:
+            if result is not None:
+                result_password = result
+                break
+
+    elapsed_time = time.time() - start_time
+
+    if result_password:
+        print(f"\n\nPassword found: {result_password}")
+        print(f"Time elapsed: {elapsed_time:.2f} seconds")
+
+        if auto_unlock:
+            print(f"\nUnlocking file...")
+            unlock_hwp(filename, result_password)
+            print(f"Success! File has been unlocked")
+
+        return 0
+    else:
+        print(f"\n\nPassword not found after checking {total} combinations")
+        print(f"Time elapsed: {elapsed_time:.2f} seconds")
+        return 1
 
 
 def main():
@@ -141,6 +262,9 @@ Examples:
 
   # Crack with custom charset and auto-unlock
   %(prog)s crack document.hwp -l 5 -c "abcdefghijk" -u
+
+  # Crack with 8 parallel workers
+  %(prog)s crack document.hwp -l 4 -c "0123456789" -w 8
 """
     )
 
@@ -193,6 +317,11 @@ Examples:
         '-u', '--unlock',
         action='store_true',
         help='Automatically unlock file when password is found'
+    )
+    crack_parser.add_argument(
+        '-w', '--workers',
+        type=int,
+        help=f'Number of parallel workers (default: {cpu_count()}, use 1 for single-threaded)'
     )
     crack_parser.set_defaults(func=crack_command)
 
