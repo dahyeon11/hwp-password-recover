@@ -4,5 +4,5 @@ olefile>=0.46
 # Optional GPU dependencies (for CUDA acceleration)
 # Uncomment and install the appropriate version for your CUDA installation:
 # numba>=0.58.0
-# cupy-cuda12x  # for CUDA 12.x
+# cupy-cuda12x  # for CUDA 12.x and 13.x (recommended)
 # cupy-cuda11x  # for CUDA 11.x

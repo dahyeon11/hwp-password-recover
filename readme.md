@@ -28,11 +28,13 @@ pip install -r requirements.txt
 
 3. **(Optional) Install GPU dependencies** for CUDA acceleration:
 ```bash
-# For CUDA 12.x
+# For CUDA 13.x or 12.x (recommended)
 pip install numba cupy-cuda12x
 
 # For CUDA 11.x
 pip install numba cupy-cuda11x
+
+# Note: cupy-cuda12x works with both CUDA 12.x and 13.x
 ```
 
 ## Usage
@@ -136,11 +138,13 @@ For NVIDIA GPUs with CUDA support, GPU acceleration provides the best performanc
 # Check your CUDA version first
 nvcc --version
 
-# Install for CUDA 12.x
+# Install for CUDA 13.x or 12.x (recommended)
 pip install numba cupy-cuda12x
 
 # Or for CUDA 11.x
 pip install numba cupy-cuda11x
+
+# Note: If you have CUDA 13.x, use cupy-cuda12x (it's compatible)
 ```
 
 **Usage:**
