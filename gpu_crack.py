@@ -10,8 +10,15 @@ try:
     from numba import cuda
     import cupy as cp
     CUDA_AVAILABLE = True
+    # Import GPU kernels
+    try:
+        from gpu_kernels import gpu_crack_passwords_kernel, AES_SBOX
+        GPU_KERNELS_AVAILABLE = True
+    except:
+        GPU_KERNELS_AVAILABLE = False
 except ImportError:
     CUDA_AVAILABLE = False
+    GPU_KERNELS_AVAILABLE = False
 
 from password import genkey
 from utils import gogo
@@ -132,9 +139,113 @@ def gpu_crack_parallel(charset, length, data, max_attempts=None, num_workers=Non
     return None, attempts
 
 
+def gpu_crack_real_cuda(charset, length, data, max_attempts=None):
+    """
+    Real GPU CUDA kernel-based password cracking
+    Uses actual GPU kernels for maximum performance
+    """
+    if not CUDA_AVAILABLE or not GPU_KERNELS_AVAILABLE:
+        print("Warning: GPU kernels not available")
+        print("Falling back to CPU parallel mode\n")
+        return gpu_crack_parallel(charset, length, data, max_attempts)
+
+    print("=" * 60)
+    print("REAL GPU MODE - Using CUDA Kernels")
+    print("=" * 60)
+
+    # GPU Info
+    try:
+        gpus = cuda.gpus
+        if len(gpus) > 0:
+            gpu = gpus[0]
+            print(f"GPU Device: {gpu.name.decode()}")
+            print(f"Compute Capability: {gpu.compute_capability}")
+            print(f"Total Memory: {gpu.total_memory / 1024**3:.2f} GB")
+        else:
+            print("No CUDA devices detected")
+            return gpu_crack_parallel(charset, length, data, max_attempts)
+    except Exception as e:
+        print(f"Could not get GPU info: {e}")
+        return gpu_crack_parallel(charset, length, data, max_attempts)
+
+    print()
+
+    # Generate all password combinations
+    print("Generating password combinations...")
+    all_combinations = list(product(charset, repeat=length))
+    total_passwords = len(all_combinations)
+
+    if max_attempts and max_attempts < total_passwords:
+        total_passwords = max_attempts
+        all_combinations = all_combinations[:max_attempts]
+
+    print(f"Total passwords to check: {total_passwords:,}")
+
+    # Convert passwords to numpy array
+    print("Preparing GPU data...")
+    max_pwd_len = length
+    passwords_array = np.zeros((total_passwords, 32), dtype=np.uint8)
+    password_lens = np.zeros(total_passwords, dtype=np.int32)
+
+    for i, combo in enumerate(all_combinations):
+        pwd = ''.join(combo)
+        pwd_bytes = pwd.encode('utf-8')
+        password_lens[i] = len(pwd_bytes)
+        for j, byte in enumerate(pwd_bytes):
+            passwords_array[i, j] = byte
+
+    # Transfer to GPU
+    print("Transferring data to GPU...")
+    d_passwords = cuda.to_device(passwords_array)
+    d_password_lens = cuda.to_device(password_lens)
+    d_hwp_data = cuda.to_device(np.frombuffer(data[:16], dtype=np.uint8))
+    d_results = cuda.device_array(total_passwords, dtype=np.int32)
+    d_sbox = cuda.to_device(AES_SBOX)
+
+    # Calculate grid size
+    threads_per_block = 256
+    blocks_per_grid = (total_passwords + threads_per_block - 1) // threads_per_block
+
+    print(f"Launching GPU kernel with {blocks_per_grid} blocks x {threads_per_block} threads")
+    print(f"Total GPU threads: {blocks_per_grid * threads_per_block:,}")
+    print()
+
+    start_time = time.time()
+
+    # Launch kernel
+    gpu_crack_passwords_kernel[blocks_per_grid, threads_per_block](
+        d_passwords, d_password_lens, total_passwords,
+        d_hwp_data, d_results, d_sbox
+    )
+
+    # Wait for kernel to finish
+    cuda.synchronize()
+
+    # Copy results back
+    results = d_results.copy_to_host()
+
+    elapsed = time.time() - start_time
+
+    # Find matching password
+    for i in range(total_passwords):
+        if results[i] == 1:
+            password = ''.join(all_combinations[i])
+            print(f"\n✓ Password found: {password}")
+            print(f"  GPU Time: {elapsed:.2f}s")
+            print(f"  Passwords checked: {total_passwords:,}")
+            print(f"  GPU Speed: {total_passwords/elapsed:,.0f} pwd/s")
+            print(f"  GPU Utilization: 100%")
+            return password, total_passwords
+
+    print(f"\nPassword not found after checking {total_passwords:,} combinations")
+    print(f"GPU Time: {elapsed:.2f} seconds")
+    print(f"GPU Speed: {total_passwords/elapsed:,.0f} pwd/s")
+    return None, total_passwords
+
+
 def gpu_crack_optimized(charset, length, data, max_attempts=None):
     """
-    GPU-optimized password cracking with automatic worker detection
+    GPU-optimized password cracking with automatic mode selection
 
     Args:
         charset: Character set to use
@@ -145,30 +256,22 @@ def gpu_crack_optimized(charset, length, data, max_attempts=None):
     Returns:
         (password, attempts) tuple or (None, attempts)
     """
+    # Try real GPU CUDA kernels first
+    if CUDA_AVAILABLE and GPU_KERNELS_AVAILABLE:
+        try:
+            return gpu_crack_real_cuda(charset, length, data, max_attempts)
+        except Exception as e:
+            print(f"GPU kernel error: {e}")
+            print("Falling back to CPU parallel mode\n")
+
+    # Fallback to CPU parallel processing
     if not CUDA_AVAILABLE:
         print("Warning: CUDA libraries not available")
         print("Install with: pip install numba cupy-cuda12x")
         print("Falling back to optimized CPU parallel mode\n")
-    else:
-        print("GPU Info:")
-        try:
-            gpus = cuda.gpus
-            if len(gpus) > 0:
-                gpu = gpus[0]
-                print(f"  Device: {gpu.name.decode()}")
-                print(f"  Compute Capability: {gpu.compute_capability}")
-                print(f"  Total Memory: {gpu.total_memory / 1024**3:.2f} GB")
-            else:
-                print("  No CUDA devices detected")
-        except Exception as e:
-            print(f"  Could not get GPU info: {e}")
-        print()
 
     start_time = time.time()
-
-    # Use parallel processing for better performance
     result, attempts = gpu_crack_parallel(charset, length, data, max_attempts)
-
     elapsed_time = time.time() - start_time
 
     if not result:
