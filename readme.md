@@ -40,14 +40,17 @@ python3 hwp_cli.py unlock document.hwp -p mypassword
 ### Brute-force Password Cracking
 
 ```bash
-python3 hwp_cli.py crack <file.hwp> -P <pattern> [options]
+python3 hwp_cli.py crack <file.hwp> [options]
 ```
 
 **Options:**
-- `-P, --pattern`: Password pattern with `{}` placeholders (required)
+- `-P, --pattern`: Password pattern with `{}` placeholders (e.g., "abc{}{}")
+- `-l, --length`: Password length (try all combinations)
 - `-c, --charset`: Character set to use (default: lowercase letters a-z)
 - `-m, --max-attempts`: Maximum number of attempts
 - `-u, --unlock`: Automatically unlock file when password is found
+
+**Note:** Either `--pattern` or `--length` must be specified (but not both).
 
 **Examples:**
 
@@ -56,19 +59,29 @@ python3 hwp_cli.py crack <file.hwp> -P <pattern> [options]
 python3 hwp_cli.py crack document.hwp -P "abc{}{}"
 ```
 
-2. Crack with pattern "{}{}{}{}" using custom charset:
+2. Crack all 4-digit passwords:
 ```bash
-python3 hwp_cli.py crack document.hwp -P "{}{}{}{}" -c "0123456789"
+python3 hwp_cli.py crack document.hwp -l 4 -c "0123456789"
 ```
 
-3. Crack and automatically unlock when found:
+3. Crack all 5-character lowercase passwords (pattern unknown):
 ```bash
-python3 hwp_cli.py crack document.hwp -P "pass{}{}" -c "123" -u
+python3 hwp_cli.py crack document.hwp -l 5
 ```
 
-4. Limit attempts to 10000:
+4. Crack with pattern and custom charset:
 ```bash
-python3 hwp_cli.py crack document.hwp -P "{}{}{}" -m 10000
+python3 hwp_cli.py crack document.hwp -P "pass{}{}" -c "123"
+```
+
+5. Crack and automatically unlock when found:
+```bash
+python3 hwp_cli.py crack document.hwp -l 3 -c "abc123" -u
+```
+
+6. Limit attempts to 10000:
+```bash
+python3 hwp_cli.py crack document.hwp -l 3 -m 10000
 ```
 
 ### Get Help
