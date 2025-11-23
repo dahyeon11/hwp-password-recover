@@ -15,6 +15,13 @@ from utils import gogo
 from password import genkey
 from hwp import unlock_hwp
 
+# Try to import GPU module
+try:
+    from gpu_crack import gpu_crack_optimized, check_cuda_availability
+    GPU_AVAILABLE = True
+except ImportError:
+    GPU_AVAILABLE = False
+
 
 def worker_crack(args_tuple):
     """Worker function for parallel password cracking"""
@@ -76,6 +83,20 @@ def crack_command(args):
         print("Error: Cannot use both --pattern and --length together")
         return 1
 
+    # Check GPU availability if requested
+    if args.gpu:
+        if not GPU_AVAILABLE:
+            print("Error: GPU module not available. Install numba and cupy:")
+            print("  pip install numba cupy-cuda12x  # for CUDA 12.x")
+            print("  pip install numba cupy-cuda11x  # for CUDA 11.x")
+            return 1
+
+        available, message = check_cuda_availability()
+        if not available:
+            print(f"Error: CUDA not available - {message}")
+            print("Falling back to CPU mode...")
+            args.gpu = False
+
     try:
         ole = olefile.OleFileIO(args.file)
         stream = ole.openstream("BodyText/Section0")
@@ -99,6 +120,11 @@ def crack_command(args):
         print(f"Starting brute-force attack on '{args.file}'")
         print(f"Mode: Pattern-based")
         print(f"Pattern: {pattern}")
+
+        # GPU mode doesn't support patterns yet
+        if args.gpu:
+            print("Warning: GPU mode doesn't support patterns yet, using CPU")
+            args.gpu = False
     else:
         # Length-based mode
         num_placeholders = args.length
@@ -113,6 +139,30 @@ def crack_command(args):
     print(f"Number of positions: {num_placeholders}")
     print(f"Total combinations: {total_combinations}")
 
+    # GPU mode
+    if args.gpu:
+        print(f"Acceleration: GPU (CUDA)")
+        print()
+
+        start_time = time.time()
+        max_attempts = args.max_attempts if args.max_attempts else total_combinations
+
+        result, attempts = gpu_crack_optimized(charset, num_placeholders, data, max_attempts)
+
+        elapsed_time = time.time() - start_time
+
+        if result:
+            if args.unlock:
+                print(f"\nUnlocking file...")
+                unlock_hwp(args.file, result)
+                print(f"Success! File has been unlocked")
+            return 0
+        else:
+            print(f"\nPassword not found after checking {attempts:,} combinations")
+            print(f"Time elapsed: {elapsed_time:.2f} seconds")
+            return 1
+
+    # CPU mode (original code)
     # Determine number of workers
     num_workers = args.workers if args.workers else cpu_count()
 
@@ -265,6 +315,9 @@ Examples:
 
   # Crack with 8 parallel workers
   %(prog)s crack document.hwp -l 4 -c "0123456789" -w 8
+
+  # Crack with GPU acceleration (fastest)
+  %(prog)s crack document.hwp -l 5 -c "0123456789" --gpu
 """
     )
 
@@ -322,6 +375,11 @@ Examples:
         '-w', '--workers',
         type=int,
         help=f'Number of parallel workers (default: {cpu_count()}, use 1 for single-threaded)'
+    )
+    crack_parser.add_argument(
+        '--gpu',
+        action='store_true',
+        help='Use GPU acceleration (requires CUDA, numba, and cupy)'
     )
     crack_parser.set_defaults(func=crack_command)
 
